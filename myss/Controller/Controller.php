@@ -122,7 +122,7 @@ class Controller
                     } else {
                         return '<div class="alert alert-danger" role="alert">You just can upload ".gif", ".jpg", ".jpeg" and ".png" files</div>';
                     }
-                    
+
                 } else {
                     $data['userImage'] = 'img/user.png';
                 }
@@ -206,9 +206,156 @@ class Controller
     }
 
 
+    public function changeInformation($data)
+    {
+        try {
+            $messages = array();
+            $errorChangingUsername = $this->changeUsername($data['username']);
+            $errorChangingEmail = $this->changeEmail($data['email']);
+            $errorChangingPicture = $this->changePicture();
+            $errorChangingName = $this->changeName($data['name']);
+
+            if (!empty($data['oldPassword']) || !empty($data['newPassword'])) {
+                $errorChangingPassword = $this->changePassword($data['oldPassword'], $data['newPassword']);
+
+                if (isset($errorChangingPassword)) {
+                    array_push($messages, $errorChangingPassword);
+                }
+            }
+            if (isset($errorChangingUsername)) {
+                array_push($messages, $errorChangingUsername);
+            }
+            if (isset($errorChangingEmail)) {
+                array_push($messages, $errorChangingEmail);
+            }
+            if (isset($errorChangingPicture)) {
+                array_push($messages, $errorChangingPicture);
+            }
+            if (isset($errorChangingName)) {
+                array_push($messages, $errorChangingName);
+            }
+            if (isset($data['birthday'])) {
+                $this->daoUser->changeBirthday($_SESSION['username'], $data['birthday']);
+            }
+            // There are no errors.
+            if (empty($messages)) {
+                array_push($messages, '<div class="alert alert-success" role="alert">
+                            The information has been updated.</div>');
+            }
+            return $messages;
+
+        } catch (Exception $e) {
+            return $e->getMessage();
+        }
+    }
+
+    private function changeUsername($newUsername)
+    {
+        if ($newUsername != $_SESSION['username']) {
+            if (!$this->isUsernameTaken($newUsername)) {
+                if (!ctype_space($newUsername) && !empty($newUsername)){
+                    $this->daoUser->changeUsername($_SESSION['username'], $newUsername);
+                } else {
+                    return '<div class="alert alert-danger" role="alert">
+                            The username can\'t be empty</div>';
+                }
+            } else {
+                return '<div class="alert alert-danger" role="alert">
+                            The typed username it\'s already taken. Please try with another one.</div>';
+            }
+        }
+    }
+
+    private function changeName($newName)
+    {
+        if ($newName != $_SESSION['name']) {
+            if (!ctype_space($newName) && !empty($newName)){
+                $this->daoUser->changeName($_SESSION['username'], $newName);
+            } else {
+                return '<div class="alert alert-danger" role="alert">
+                            The name can\'t be empty</div>';
+            }
+        }
+    }
+
+    private function changeEmail($newEmail)
+    {
+        if ($newEmail != $_SESSION['email']) {
+            if (!$this->isEmailTaken($newEmail)) {
+                if (filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+                    $this->daoUser->changeEmail($_SESSION['email'], $newEmail);
+                } else {
+                    return '<div class="alert alert-danger" role="alert">The email is invalid.</div>';
+                }
+            } else {
+                return '<div class="alert alert-danger" role="alert">
+                            The typed email it\'s already taken. Please try with another one.</div>';
+            }
+        }
+    }
+
+    private function changePicture()
+    {
+        $imageName = $_FILES['changeUserImage']['name'];
+        $imageTempName = $_FILES['changeUserImage']['tmp_name'];
+
+        if ($imageName != "") {
+            $type = explode('.', $imageName);
+            $type = strtolower($type[count($type) - 1]);
+
+            if (in_array($type, array('gif', 'jpg', 'jpeg', 'png'))) {
+                $userImage = 'profilePictures/' . uniqid(rand()) . '.' . $type;
+                $this->daoUser->changePicture($_SESSION['username'], $userImage);
+                move_uploaded_file($imageTempName, $userImage);
+            } else {
+                return '<div class="alert alert-danger" role="alert">You just can upload ".gif", ".jpg", ".jpeg" and ".png" files</div>';
+            }
+
+        }
+    }
+
+    private function changePassword($oldPassword, $newPassword)
+    {
+        $cursor = $this->getUser($_SESSION['email']);
+        $oldPasswordEncrypted = '';
+        $resultingDocuments = array();
+
+        if (empty($oldPassword)) {
+            return '<div class="alert alert-danger" role="alert">You have to type your current password.</div>';
+        }
+        if (empty($newPassword)) {
+            return '<div class="alert alert-danger" role="alert">The new password can\'t be empty.</div>';
+        }
+
+        foreach ($cursor as $key => $value) {
+            $resultingDocuments [$key] = $value;
+            $oldPasswordEncrypted = $resultingDocuments [$key]->get('password');
+        }
+        if (password_verify($oldPassword, $oldPasswordEncrypted)) {
+            $newPasswordEncrypted = password_hash($newPassword, PASSWORD_BCRYPT);
+            $this->daoUser->changePassword($_SESSION['username'], $newPasswordEncrypted);
+        } else {
+            return '<div class="alert alert-danger" role="alert">
+                            The current password typed is incorrect.</div>';
+        }
+    }
+
+
     public function filterPostsByTag($tag)
     {
         $dtoPost_Comment_Tag = $this->daoPost_Comment_Tag->filterPostsByTag($tag);
+        return $dtoPost_Comment_Tag->getPosts();
+    }
+
+    public function filterUsername($user)
+    {
+        $result = $this->daoUser->filterUsername($user);
+        return $result;
+    }
+
+    public function filterDescription($description)
+    {
+        $dtoPost_Comment_Tag = $this->daoPost_Comment_Tag->filterPostsByDescription($description);
         return $dtoPost_Comment_Tag->getPosts();
     }
 
@@ -256,12 +403,22 @@ class Controller
         return $post;
     }
 
-    public function like($userKey, $postKey){
+    public function like($userKey, $postKey)
+    {
         $this->daoPost_Comment_Tag->like($userKey, $postKey);
     }
 
-    public function getTags(){
+    public function getTags()
+    {
         return $this->daoPost_Comment_Tag->getTags();
     }
 
+    public function search($text, $mode){
+        if ($mode == 1)
+            $this->filterPostsByTag($text);
+        if ($mode == 2)
+            $this->filterDescription($text);
+        if ($mode == 3)
+            $this->filterUsername($text);
+    }
 }
